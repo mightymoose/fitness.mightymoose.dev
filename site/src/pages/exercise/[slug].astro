@@ -1,0 +1,188 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import VelocityChart from '../../components/VelocityChart.astro';
+import {
+  getExercises, getExerciseBySlug, getExerciseHistory,
+  getVelocityData, getVelocityE1RM, slugify,
+} from '../../lib/db';
+import { renderLoadVelocityChart } from '../../lib/charts';
+import type { VelocityRep } from '../../lib/db';
+
+export function getStaticPaths() {
+  return getExercises().map(e => ({
+    params: { slug: slugify(e.name) },
+  }));
+}
+
+const exercise = getExerciseBySlug(Astro.params.slug!)!;
+const history = getExerciseHistory(exercise.id);
+const velocityData = getVelocityData(exercise.id);
+const velE1RM = getVelocityE1RM(exercise.id);
+
+const workSets = history.filter((s: any) => s.set_type === 'work');
+const topWeight = workSets.length > 0 ? Math.max(...workSets.map((s: any) => s.weight_lb)) : 0;
+const totalReps = workSets.reduce((s: number, r: any) => s + r.rep_count, 0);
+const totalVolume = workSets.reduce((s: number, r: any) => s + r.weight_lb * r.rep_count, 0);
+
+// Best set by weight
+const bestSet = workSets.length > 0
+  ? workSets.reduce((best: any, s: any) => s.weight_lb > best.weight_lb ? s : best, workSets[0])
+  : null;
+
+// e1RM: prefer velocity, fallback to Brzycki
+let e1rm: number | null = null;
+let e1rmMethod = '';
+if (velE1RM) {
+  e1rm = velE1RM.e1rm;
+  e1rmMethod = `VBT · MVT ${velE1RM.mvt} m/s · R²=${velE1RM.r2}`;
+} else if (bestSet) {
+  e1rm = bestSet.rep_count === 1
+    ? bestSet.weight_lb
+    : Math.round(bestSet.weight_lb * (36 / (37 - bestSet.rep_count)) * 10) / 10;
+  e1rmMethod = 'Brzycki';
+}
+
+// Velocity chart
+const velocityPoints = velocityData
+  .filter((d: VelocityRep) => d.mean_velocity !== null)
+  .map((d: VelocityRep) => ({ weight_lb: d.weight_lb, mean_velocity: d.mean_velocity! }));
+const chartSvg = renderLoadVelocityChart(exercise.name, velocityPoints);
+
+// VBT grouped by weight, with dates
+interface VBTGroup {
+  weight: number;
+  count: number;
+  avg: number;
+  dates: string[];
+  reps: { mean_velocity: number }[];
+}
+
+const vbtByWeight = new Map<number, { reps: { mean_velocity: number }[]; dates: Set<string> }>();
+for (const v of velocityData) {
+  if (v.mean_velocity === null) continue;
+  if (!vbtByWeight.has(v.weight_lb)) vbtByWeight.set(v.weight_lb, { reps: [], dates: new Set() });
+  const group = vbtByWeight.get(v.weight_lb)!;
+  group.reps.push({ mean_velocity: v.mean_velocity });
+  if (v.date) group.dates.add(v.date);
+}
+
+const vbtSets: VBTGroup[] = Array.from(vbtByWeight.entries())
+  .map(([w, d]) => ({
+    weight: w,
+    count: d.reps.length,
+    avg: d.reps.reduce((s, r) => s + r.mean_velocity, 0) / d.reps.length,
+    dates: Array.from(d.dates).sort().reverse(),
+    reps: d.reps,
+  }))
+  .sort((a, b) => a.weight - b.weight);
+
+function fmt(w: number) { return w % 1 === 0 ? w.toString() : w.toFixed(1); }
+function fmtVol(v: number) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toString(); }
+function rpeClass(rpe: number | null) { return rpe === null ? '' : rpe <= 6 ? 'rpe-easy' : rpe <= 8 ? 'rpe-moderate' : 'rpe-hard'; }
+---
+
+<Layout title={`${exercise.name} — Mighty Moose Fitness`}>
+  <div class="breadcrumb">
+    <a href="/">Dashboard</a>
+    <span class="sep">/</span>
+    <span class="current">{exercise.name}</span>
+  </div>
+
+  <div class="page-header">
+    <h1>{exercise.name}</h1>
+    <p class="subtitle">{exercise.implement || 'Exercise'}</p>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{fmt(topWeight)}</div>
+      <div class="stat-label">Top Weight (lb)</div>
+    </div>
+    {e1rm && (
+      <div class="stat-card">
+        <div class="stat-value">{fmt(e1rm)}</div>
+        <div class="stat-label">Est. 1RM (lb)</div>
+      </div>
+    )}
+    <div class="stat-card">
+      <div class="stat-value">{workSets.length}</div>
+      <div class="stat-label">Work Sets</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmtVol(totalVolume)}</div>
+      <div class="stat-label">Total Volume</div>
+    </div>
+  </div>
+
+  {e1rm && (
+    <div style="font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); margin-top: -1.5rem; margin-bottom: 1.5rem;">
+      e1RM method: {e1rmMethod}
+    </div>
+  )}
+
+  {bestSet && (
+    <section class="section">
+      <div class="section-header"><h2>Best Set</h2></div>
+      <div class="card" style="display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;">
+        <span class="weight" style="font-size: 1.3rem;">{fmt(bestSet.weight_lb)}<span class="weight-unit">lb</span></span>
+        <span class="num">× {bestSet.rep_count} reps</span>
+        {bestSet.rpe !== null && <span class={`rpe-value ${rpeClass(bestSet.rpe)}`}>RPE {bestSet.rpe}</span>}
+        <span style="color: var(--text-muted); font-size: 0.8rem;">{bestSet.date}</span>
+      </div>
+    </section>
+  )}
+
+  {chartSvg && (
+    <section class="section">
+      <div class="section-header"><h2>Load-Velocity Profile</h2></div>
+      <VelocityChart exerciseName={exercise.name} chartSvg={chartSvg} />
+    </section>
+  )}
+
+  {vbtSets.length > 0 && (
+    <section class="section">
+      <div class="section-header">
+        <h2>Velocity by Load</h2>
+        <span class="count">{velocityData.length} reps tracked</span>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Weight</th><th>Reps</th><th>Avg Velocity</th><th>Date</th></tr></thead>
+          <tbody>
+            {vbtSets.map(s => (
+              <tr>
+                <td><span class="weight">{fmt(s.weight)}</span><span class="weight-unit">lb</span></td>
+                <td class="num">{s.count}</td>
+                <td><span class="num" style={`color: ${s.avg >= 0.3 ? 'var(--green)' : s.avg >= 0.2 ? 'var(--yellow)' : 'var(--red)'};`}>{s.avg.toFixed(2)} m/s</span></td>
+                <td style="color: var(--text-secondary); font-size: 0.8rem;">{s.dates.join(', ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Set History</h2>
+      <span class="count">{workSets.length} work sets</span>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Date</th><th>Weight</th><th>Reps</th><th>RPE</th><th>Intent</th></tr></thead>
+        <tbody>
+          {workSets.map((s: any) => (
+            <tr>
+              <td style="color: var(--text-secondary);">{s.date}</td>
+              <td><span class="weight">{fmt(s.weight_lb)}</span><span class="weight-unit">lb</span></td>
+              <td class="num">{s.rep_count}</td>
+              <td>{s.rpe !== null ? <span class={`rpe-value ${rpeClass(s.rpe)}`}>{s.rpe}</span> : <span style="color: var(--text-muted);">—</span>}</td>
+              <td><span class={`badge badge-${s.intent}`}>{s.intent}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,82 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import {
+  getPrograms, getProgramById, getWorkoutsForProgram,
+  getBlocksForWorkout, getSetsForBlock,
+} from '../../lib/db';
+
+export function getStaticPaths() {
+  return getPrograms().map(p => ({ params: { id: p.id.toString() } }));
+}
+
+const program = getProgramById(Number(Astro.params.id))!;
+const workouts = getWorkoutsForProgram(program.id);
+
+const workoutRows = workouts.map(w => {
+  const blocks = getBlocksForWorkout(w.id);
+  let workSets = 0;
+  let totalVolume = 0;
+  for (const b of blocks) {
+    const sets = getSetsForBlock(b.id).filter(s => s.completed && s.set_type === 'work');
+    workSets += sets.length;
+    totalVolume += sets.reduce((s, set) => s + set.weight_lb * set.rep_count, 0);
+  }
+  return { ...w, exerciseCount: blocks.length, workSets, totalVolume };
+});
+
+const totalSessions = workouts.length;
+const totalSets = workoutRows.reduce((s, w) => s + w.workSets, 0);
+const totalVolume = workoutRows.reduce((s, w) => s + w.totalVolume, 0);
+
+function fmtVol(v: number) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toString(); }
+---
+
+<Layout title={`${program.name} — Mighty Moose Fitness`}>
+  <div class="breadcrumb">
+    <a href="/">Dashboard</a>
+    <span class="sep">/</span>
+    <span class="current">{program.name}</span>
+  </div>
+
+  <div class="page-header">
+    <h1>{program.name}</h1>
+    {program.description && <p class="subtitle">{program.description}</p>}
+    {(program.start_date || program.end_date) && (
+      <p class="subtitle" style="margin-top: 0.15rem;">
+        {program.start_date && <span>{program.start_date}</span>}
+        {program.start_date && program.end_date && <span> → </span>}
+        {program.end_date && <span>{program.end_date}</span>}
+        {!program.end_date && <span> → ongoing</span>}
+      </p>
+    )}
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{totalSessions}</div>
+      <div class="stat-label">Sessions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{totalSets}</div>
+      <div class="stat-label">Work Sets</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmtVol(totalVolume)}</div>
+      <div class="stat-label">Total Volume (lb)</div>
+    </div>
+  </div>
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Sessions</h2>
+      <span class="count">{totalSessions}</span>
+    </div>
+    {workoutRows.map(w => (
+      <a href={`/workout/${w.id}`} class="workout-list-item">
+        <span class="workout-list-date">{w.date}</span>
+        <span class="workout-list-goal">{w.goal || 'Training session'}</span>
+        <span class="workout-list-meta">{w.exerciseCount} exercises · {w.workSets} sets · {fmtVol(w.totalVolume)}lb</span>
+      </a>
+    ))}
+  </section>
+</Layout>

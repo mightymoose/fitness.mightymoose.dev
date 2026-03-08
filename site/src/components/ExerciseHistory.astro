@@ -1,0 +1,69 @@
+---
+interface HistoryRow {
+  date: string;
+  weight_lb: number;
+  rep_count: number;
+  rpe: number | null;
+  set_type: string;
+  intent: string;
+}
+
+interface Props {
+  exerciseName: string;
+  history: HistoryRow[];
+}
+
+const { exerciseName, history } = Astro.props;
+
+function rpeClass(rpe: number | null): string {
+  if (rpe === null) return '';
+  if (rpe <= 6) return 'rpe-easy';
+  if (rpe <= 8) return 'rpe-moderate';
+  return 'rpe-hard';
+}
+
+function formatWeight(w: number): string {
+  return w % 1 === 0 ? w.toString() : w.toFixed(1);
+}
+
+const workSets = history.filter((s) => s.set_type === 'work');
+const topWeight = workSets.length > 0 ? Math.max(...workSets.map((s) => s.weight_lb)) : 0;
+---
+
+<div class="card">
+  <div class="history-header">
+    <span class="history-name">{exerciseName}</span>
+    {topWeight > 0 && <span class="history-top">Best: {formatWeight(topWeight)} lb</span>}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Weight</th>
+        <th>Reps</th>
+        <th>RPE</th>
+        <th>Intent</th>
+      </tr>
+    </thead>
+    <tbody>
+      {workSets.map((s) => (
+        <tr>
+          <td style="color: var(--text-secondary)">{s.date}</td>
+          <td>
+            <span class="weight">{formatWeight(s.weight_lb)}</span>
+            <span class="weight-unit">lb</span>
+          </td>
+          <td class="num">{s.rep_count}</td>
+          <td>
+            {s.rpe !== null ? (
+              <span class={`rpe-value ${rpeClass(s.rpe)}`}>{s.rpe}</span>
+            ) : (
+              <span style="color: var(--text-muted);">—</span>
+            )}
+          </td>
+          <td><span class={`badge badge-${s.intent}`}>{s.intent}</span></td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

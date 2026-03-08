@@ -1,0 +1,95 @@
+---
+import { slugify, type Workout, type Block, type Set } from '../lib/db';
+
+interface Props {
+  workout: Workout;
+  blocks: (Block & { sets: Set[] })[];
+}
+
+const { workout, blocks } = Astro.props;
+
+function rpeClass(rpe: number | null): string {
+  if (rpe === null) return '';
+  if (rpe <= 6) return 'rpe-easy';
+  if (rpe <= 8) return 'rpe-moderate';
+  return 'rpe-hard';
+}
+
+function rpeDots(rpe: number): string {
+  const filled = Math.round(rpe);
+  return Array.from({ length: 10 }, (_, i) =>
+    `<span class="rpe-dot${i < filled ? ' filled' : ''}"></span>`
+  ).join('');
+}
+
+function formatWeight(w: number): string {
+  return w % 1 === 0 ? w.toString() : w.toFixed(1);
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+// Count completed work sets
+const totalSets = blocks.reduce((sum, b) => sum + b.sets.filter(s => s.completed && s.set_type === 'work').length, 0);
+const topWeight = Math.max(...blocks.flatMap(b => b.sets.filter(s => s.completed).map(s => s.weight_lb)));
+---
+
+<div class="card">
+  <div class="workout-header">
+    <div>
+      <div class="workout-date">{formatDate(workout.date)}</div>
+      {workout.goal && <div class="workout-goal">{workout.goal}</div>}
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      {workout.program_name && <span class="badge badge-program">{workout.program_name}</span>}
+      <span class="badge badge-work">{totalSets} work sets</span>
+    </div>
+  </div>
+
+  {blocks.map((block) => (
+    <div class="exercise-block">
+      <div class="exercise-header">
+        <a href={`/exercise/${slugify(block.exercise_name)}`} class="exercise-name" style="text-decoration: none; color: inherit; border-bottom: 1px solid var(--border-strong); transition: border-color 0.2s;">{block.exercise_name}</a>
+        <span class={`badge badge-${block.intent}`}>{block.intent}</span>
+        {block.implement && <span class="implement-tag">{block.implement}</span>}
+      </div>
+      {block.strategy && <div class="strategy-note">{block.strategy}</div>}
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 3rem">Set</th>
+            <th style="width: 5.5rem">Type</th>
+            <th>Weight</th>
+            <th style="width: 3.5rem">Reps</th>
+            <th>RPE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {block.sets.map((s) => (
+            <tr class={!s.completed ? 'row-incomplete' : ''}>
+              <td class="num">{s.set_number}</td>
+              <td><span class={`badge badge-${s.set_type}`}>{s.set_type}</span></td>
+              <td>
+                <span class="weight">{formatWeight(s.weight_lb)}</span>
+                <span class="weight-unit">lb</span>
+              </td>
+              <td class="num">{s.rep_count}</td>
+              <td>
+                {s.rpe !== null ? (
+                  <span class={`rpe ${rpeClass(s.rpe)}`}>
+                    <span class="rpe-bar" set:html={rpeDots(s.rpe)} />
+                    <span class="rpe-value">{s.rpe}</span>
+                  </span>
+                ) : (
+                  <span style="color: var(--text-muted);">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ))}
+</div>

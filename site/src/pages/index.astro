@@ -1,0 +1,189 @@
+---
+import Layout from '../layouts/Layout.astro';
+import {
+  getWorkouts,
+  getBlocksForWorkout,
+  getSetsForBlock,
+  getExerciseSummaries,
+  getPrograms,
+  getPRs,
+  getWorkoutStreak,
+  getTotalStats,
+  getWeeklyVolume,
+  slugify,
+} from '../lib/db';
+
+const workouts = getWorkouts();
+const summaries = getExerciseSummaries();
+const programs = getPrograms();
+const prs = getPRs();
+const streak = getWorkoutStreak();
+const stats = getTotalStats();
+const weeklyVolume = getWeeklyVolume();
+
+const recentWorkout = workouts[0] ?? null;
+let recentBlocks: { name: string; sets: number; topWeight: number; intent: string }[] = [];
+if (recentWorkout) {
+  recentBlocks = getBlocksForWorkout(recentWorkout.id).map(b => {
+    const sets = getSetsForBlock(b.id).filter(s => s.completed && s.set_type === 'work');
+    return {
+      name: b.exercise_name,
+      sets: sets.length,
+      topWeight: sets.length > 0 ? Math.max(...sets.map(s => s.weight_lb)) : 0,
+      intent: b.intent,
+    };
+  });
+}
+
+const activeProgram = programs[0] ?? null;
+const topPRs = prs.slice(0, 3);
+
+function fmt(w: number) { return w % 1 === 0 ? w.toString() : w.toFixed(1); }
+function fmtVol(v: number) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toString(); }
+---
+
+<Layout title="Dashboard — Mighty Moose Fitness">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p class="subtitle">What should I do today, and how am I trending?</p>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{stats.workouts}</div>
+      <div class="stat-label">Sessions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{stats.work_sets}</div>
+      <div class="stat-label">Work Sets</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmtVol(stats.total_volume)}</div>
+      <div class="stat-label">Total Volume (lb)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{streak}</div>
+      <div class="stat-label">Week Streak</div>
+    </div>
+  </div>
+
+  {recentWorkout && (
+    <section class="section">
+      <div class="section-header">
+        <h2>Most Recent Session</h2>
+        <span class="count">{recentWorkout.date}</span>
+      </div>
+      <a href={`/workout/${recentWorkout.id}`} class="card" style="display: block; text-decoration: none; color: inherit;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+          <strong style="font-size: 0.95rem;">{recentWorkout.goal || 'Training session'}</strong>
+          <div style="display: flex; gap: 0.35rem;">
+            {recentWorkout.program_name && <span class="badge badge-program">{recentWorkout.program_name}</span>}
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          {recentBlocks.map(b => (
+            <span class={`badge badge-${b.intent}`}>{b.name} · {fmt(b.topWeight)}lb × {b.sets}</span>
+          ))}
+        </div>
+      </a>
+    </section>
+  )}
+
+  {weeklyVolume.length > 0 && (
+    <section class="section">
+      <div class="section-header">
+        <h2>Weekly Volume</h2>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Week</th>
+              <th>Workouts</th>
+              <th>Sets</th>
+              <th>Reps</th>
+              <th>Volume (lb)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeklyVolume.map(w => (
+              <tr>
+                <td class="num">{w.week}</td>
+                <td class="num">{w.workout_count}</td>
+                <td class="num">{w.total_sets}</td>
+                <td class="num">{w.total_reps}</td>
+                <td><span class="weight">{fmtVol(w.total_volume)}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {topPRs.length > 0 && (
+    <section class="section">
+      <div class="section-header">
+        <h2>Top PRs</h2>
+        <a href="/prs" style="font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); text-decoration: none;">View all →</a>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Date</th></tr></thead>
+          <tbody>
+            {topPRs.map(pr => (
+              <tr>
+                <td><a href={`/exercise/${slugify(pr.exercise_name)}`} style="color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border-strong);">{pr.exercise_name}</a></td>
+                <td><span class="weight">{fmt(pr.weight_lb)}</span><span class="weight-unit">lb</span></td>
+                <td class="num">{pr.rep_count}</td>
+                <td style="color: var(--text-secondary);">{pr.date}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Exercises</h2>
+      <span class="count">{summaries.length}</span>
+    </div>
+    <div class="exercise-grid">
+      {summaries.map(e => (
+        <a href={`/exercise/${slugify(e.name)}`} class="exercise-card">
+          <div>
+            <div class="exercise-card-name">{e.name}</div>
+            <div class="exercise-card-footer">
+              {e.implement && <span class="badge badge-work">{e.implement}</span>}
+              {e.has_velocity && <span class="velocity-indicator">VBT</span>}
+            </div>
+          </div>
+          <div class="exercise-card-stats">
+            <div class="exercise-card-stat">
+              <span class="exercise-card-stat-value">{fmt(e.top_weight)}<span class="weight-unit">lb</span></span>
+              <span class="exercise-card-stat-label">Top Weight</span>
+            </div>
+            <div class="exercise-card-stat">
+              <span class="exercise-card-stat-value">{e.work_sets}</span>
+              <span class="exercise-card-stat-label">Work Sets</span>
+            </div>
+          </div>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  {activeProgram && (
+    <section class="section">
+      <div class="section-header">
+        <h2>Active Program</h2>
+      </div>
+      <a href={`/program/${activeProgram.id}`} class="card" style="display: block; text-decoration: none; color: inherit;">
+        <strong style="font-size: 0.95rem;">{activeProgram.name}</strong>
+        {activeProgram.description && <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">{activeProgram.description}</p>}
+      </a>
+    </section>
+  )}
+</Layout>

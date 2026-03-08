@@ -1,0 +1,188 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import {
+  getWorkouts,
+  getWorkoutById,
+  getBlocksForWorkout,
+  getSetsForBlock,
+  getVelocityForBlock,
+  slugify,
+} from '../../lib/db';
+
+export function getStaticPaths() {
+  return getWorkouts().map(w => ({ params: { id: w.id.toString() } }));
+}
+
+const workout = getWorkoutById(Number(Astro.params.id))!;
+const blocks = getBlocksForWorkout(workout.id).map(b => {
+  const sets = getSetsForBlock(b.id);
+  const velocity = getVelocityForBlock(b.id);
+  return { ...b, sets, velocity };
+});
+
+// Volume summary
+const workSets = blocks.flatMap(b => b.sets.filter(s => s.completed && s.set_type === 'work'));
+const totalVolume = workSets.reduce((s, set) => s + set.weight_lb * set.rep_count, 0);
+const totalReps = workSets.reduce((s, set) => s + set.rep_count, 0);
+
+// Best set (heaviest completed work set)
+const bestSet = workSets.length > 0
+  ? workSets.reduce((best, s) => s.weight_lb > best.weight_lb ? s : best, workSets[0])
+  : null;
+
+function fmt(w: number) { return w % 1 === 0 ? w.toString() : w.toFixed(1); }
+function fmtVol(v: number) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toString(); }
+
+function rpeClass(rpe: number | null) {
+  if (rpe === null) return '';
+  return rpe <= 6 ? 'rpe-easy' : rpe <= 8 ? 'rpe-moderate' : 'rpe-hard';
+}
+
+function rpeDots(rpe: number) {
+  const filled = Math.round(rpe);
+  return Array.from({ length: 10 }, (_, i) =>
+    `<span class="rpe-dot${i < filled ? ' filled' : ''}"></span>`
+  ).join('');
+}
+
+function fmtDate(d: string) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+---
+
+<Layout title={`${fmtDate(workout.date)} — Mighty Moose Fitness`}>
+  <div class="breadcrumb">
+    <a href="/workouts">Workouts</a>
+    <span class="sep">/</span>
+    <span class="current">{workout.date}</span>
+  </div>
+
+  <div class="page-header">
+    <h1>{fmtDate(workout.date)}</h1>
+    {workout.goal && <p class="subtitle">{workout.goal}{workout.program_name ? ` · ${workout.program_name}` : ''}</p>}
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{blocks.length}</div>
+      <div class="stat-label">Exercises</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{workSets.length}</div>
+      <div class="stat-label">Work Sets</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{totalReps}</div>
+      <div class="stat-label">Total Reps</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmtVol(totalVolume)}</div>
+      <div class="stat-label">Volume (lb)</div>
+    </div>
+  </div>
+
+  {bestSet && (
+    <section class="section">
+      <div class="section-header"><h2>Best Set</h2></div>
+      <div class="card" style="display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;">
+        <span class="weight" style="font-size: 1.3rem;">{fmt(bestSet.weight_lb)}<span class="weight-unit">lb</span></span>
+        <span class="num">× {bestSet.rep_count} reps</span>
+        {bestSet.rpe !== null && <span class={`rpe-value ${rpeClass(bestSet.rpe)}`}>RPE {bestSet.rpe}</span>}
+      </div>
+    </section>
+  )}
+
+  {blocks.map(block => (
+    <section class="section">
+      <div class="section-header">
+        <h2>
+          <a href={`/exercise/${slugify(block.exercise_name)}`} style="text-decoration: none; color: inherit; border-bottom: 1px solid var(--border-strong);">
+            {block.exercise_name}
+          </a>
+        </h2>
+        <span class={`badge badge-${block.intent}`}>{block.intent}</span>
+        {block.implement && <span style="font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase;">{block.implement}</span>}
+      </div>
+      {block.strategy && <div class="strategy-note" style="margin-top: -0.5rem; margin-bottom: 0.75rem;">{block.strategy}</div>}
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 2.5rem">#</th>
+              <th style="width: 4.5rem">Type</th>
+              <th>Weight</th>
+              <th style="width: 3rem">Reps</th>
+              <th>RPE</th>
+              {block.velocity.length > 0 && <th>Velocity</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {block.sets.map(s => {
+              const setVelocity = block.velocity.filter(v => v.set_number === s.set_number);
+              return (
+                <tr class={!s.completed ? 'row-incomplete' : ''}>
+                  <td class="num">{s.set_number}</td>
+                  <td><span class={`badge badge-${s.set_type}`}>{s.set_type}</span></td>
+                  <td><span class="weight">{fmt(s.weight_lb)}</span><span class="weight-unit">lb</span></td>
+                  <td class="num">{s.rep_count}</td>
+                  <td>
+                    {s.rpe !== null ? (
+                      <span class={`rpe ${rpeClass(s.rpe)}`}>
+                        <span class="rpe-bar" set:html={rpeDots(s.rpe)} />
+                        <span class="rpe-value">{s.rpe}</span>
+                      </span>
+                    ) : <span style="color: var(--text-muted);">—</span>}
+                  </td>
+                  {block.velocity.length > 0 && (
+                    <td>
+                      {setVelocity.length > 0 ? (
+                        <span style="display: inline-flex; gap: 0.3rem;">
+                          {setVelocity.map(v => (
+                            <span class="num" style={`font-size: 0.7rem; color: ${v.mean_velocity! >= 0.3 ? 'var(--green)' : v.mean_velocity! >= 0.2 ? 'var(--yellow)' : 'var(--red)'};`}>
+                              {v.mean_velocity!.toFixed(2)}
+                            </span>
+                          ))}
+                        </span>
+                      ) : <span style="color: var(--text-muted);">—</span>}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  ))}
+
+  {workout.notes && (
+    <section class="section">
+      <div class="section-header"><h2>Notes</h2></div>
+      <div class="card" style="font-size: 0.85rem; color: var(--text-secondary);">{workout.notes}</div>
+    </section>
+  )}
+
+  <section class="section">
+    <div class="section-header"><h2>Volume Summary</h2></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Exercise</th><th>Sets</th><th>Reps</th><th>Volume</th></tr></thead>
+        <tbody>
+          {blocks.map(b => {
+            const ws = b.sets.filter(s => s.completed && s.set_type === 'work');
+            const vol = ws.reduce((s, set) => s + set.weight_lb * set.rep_count, 0);
+            const reps = ws.reduce((s, set) => s + set.rep_count, 0);
+            return (
+              <tr>
+                <td>{b.exercise_name}</td>
+                <td class="num">{ws.length}</td>
+                <td class="num">{reps}</td>
+                <td><span class="weight">{fmtVol(vol)}</span><span class="weight-unit">lb</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</Layout>

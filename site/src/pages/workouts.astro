@@ -1,0 +1,31 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getWorkouts, getBlocksForWorkout, getSetsForBlock } from '../lib/db';
+
+const workouts = getWorkouts();
+
+const rows = workouts.map(w => {
+  const blocks = getBlocksForWorkout(w.id);
+  let workSets = 0;
+  for (const b of blocks) {
+    workSets += getSetsForBlock(b.id).filter(s => s.completed && s.set_type === 'work').length;
+  }
+  return { ...w, exerciseCount: blocks.length, workSets };
+});
+---
+
+<Layout title="Workouts — Mighty Moose Fitness">
+  <div class="page-header">
+    <h1>Workouts</h1>
+    <p class="subtitle">{workouts.length} session{workouts.length !== 1 ? 's' : ''}</p>
+  </div>
+
+  {rows.map(w => (
+    <a href={`/workout/${w.id}`} class="workout-list-item">
+      <span class="workout-list-date">{w.date}</span>
+      <span class="workout-list-goal">{w.goal || 'Training session'}</span>
+      {w.program_name && <span class="badge badge-program">{w.program_name}</span>}
+      <span class="workout-list-meta">{w.exerciseCount} exercises · {w.workSets} sets</span>
+    </a>
+  ))}
+</Layout>

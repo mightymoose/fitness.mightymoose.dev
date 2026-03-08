@@ -1,0 +1,14 @@
+---
+interface Props {
+  exerciseName: string;
+  chartSvg: string;
+}
+
+const { exerciseName, chartSvg } = Astro.props;
+---
+
+{chartSvg && (
+  <div class="chart-card">
+    <Fragment set:html={chartSvg} />
+  </div>
+)}

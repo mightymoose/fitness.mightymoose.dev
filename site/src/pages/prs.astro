@@ -1,0 +1,62 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getPRs, getEstimated1RMs, slugify } from '../lib/db';
+
+const prs = getPRs();
+const e1rms = getEstimated1RMs();
+
+function fmt(w: number) { return w % 1 === 0 ? w.toString() : w.toFixed(1); }
+function rpeClass(rpe: number | null) { return rpe === null ? '' : rpe <= 6 ? 'rpe-easy' : rpe <= 8 ? 'rpe-moderate' : 'rpe-hard'; }
+---
+
+<Layout title="PRs & Milestones — Mighty Moose Fitness">
+  <div class="page-header">
+    <h1>PRs & Milestones</h1>
+    <p class="subtitle">All-time bests and estimated maxes</p>
+  </div>
+
+  <section class="section">
+    <div class="section-header"><h2>Estimated 1RMs</h2></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Exercise</th><th>Est. 1RM</th><th>Method</th><th>Based On</th><th>Date</th></tr></thead>
+        <tbody>
+          {e1rms.map(r => (
+            <tr>
+              <td><a href={`/exercise/${slugify(r.exercise_name)}`} style="color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border-strong);">{r.exercise_name}</a></td>
+              <td><span class="weight" style="font-size: 1rem;">{fmt(r.e1rm)}</span><span class="weight-unit">lb</span></td>
+              <td>
+                {r.method === 'velocity'
+                  ? <span class="velocity-indicator">VBT</span>
+                  : <span style="font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase;">Brzycki</span>
+                }
+              </td>
+              <td style="color: var(--text-secondary); font-size: 0.8rem;">{r.based_on}</td>
+              <td style="color: var(--text-secondary);">{r.date}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><h2>All-Time Weight PRs</h2></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>RPE</th><th>Date</th></tr></thead>
+        <tbody>
+          {prs.map(pr => (
+            <tr>
+              <td><a href={`/exercise/${slugify(pr.exercise_name)}`} style="color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border-strong);">{pr.exercise_name}</a></td>
+              <td><span class="weight" style="font-size: 1rem;">{fmt(pr.weight_lb)}</span><span class="weight-unit">lb</span></td>
+              <td class="num">{pr.rep_count}</td>
+              <td>{pr.rpe !== null ? <span class={`rpe-value ${rpeClass(pr.rpe)}`}>{pr.rpe}</span> : <span style="color: var(--text-muted);">—</span>}</td>
+              <td style="color: var(--text-secondary);">{pr.date}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</Layout>
