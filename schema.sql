@@ -1,6 +1,7 @@
 CREATE TABLE exercises (
     id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL
+    name TEXT UNIQUE NOT NULL,
+    implement TEXT
 );
 
 CREATE TABLE programs (

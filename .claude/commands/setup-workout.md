@@ -103,7 +103,7 @@ Once confirmed, INSERT everything. Use a single Bash call with all SQL:
 PRAGMA foreign_keys = ON;
 
 -- Insert any new exercises
-INSERT OR IGNORE INTO exercises (name) VALUES ('...');
+INSERT OR IGNORE INTO exercises (name, implement) VALUES ('...', '...');
 
 -- Insert workout
 INSERT INTO workouts (date, goal, program_id, notes) VALUES (date('now'), '...', ?, '...');

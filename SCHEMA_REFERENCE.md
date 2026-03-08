@@ -9,6 +9,7 @@ Database: SQLite · File: `fitness.db` · Access: `sqlite3 fitness.db`
 |--------|------|-------|
 | id | INTEGER PK | |
 | name | TEXT UNIQUE NOT NULL | e.g., "Bench Press", "Squat" |
+| implement | TEXT | Equipment type: `barbell`, `dumbbell`, `cable`, etc. |
 
 ## programs
 Long-term training goals that span multiple workouts.
