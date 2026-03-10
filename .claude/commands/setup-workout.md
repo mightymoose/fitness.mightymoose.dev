@@ -41,16 +41,30 @@ ORDER BY e.name, w.date DESC;
 -- Available exercises
 SELECT id, name FROM exercises ORDER BY name;
 
--- Velocity data if available
+-- Velocity data if available (only completed sets)
 SELECT e.name, w.date, s.weight_lb, AVG(r.mean_velocity) as avg_vel
 FROM reps r
 JOIN sets s ON r.set_id = s.id
 JOIN blocks b ON s.block_id = b.id
 JOIN exercises e ON b.exercise_id = e.id
 JOIN workouts w ON b.workout_id = w.id
-WHERE w.date >= date('now', '-30 days')
+WHERE s.completed_at IS NOT NULL AND w.date >= date('now', '-30 days')
 GROUP BY e.name, w.date, s.weight_lb
 ORDER BY e.name, w.date DESC;
+
+-- Estimated one-rep maxes (Epley formula, from completed work sets only)
+SELECT e.name,
+       ROUND(MAX(s.weight_lb * (1 + s.rep_count / 30.0)), 1) as e1rm_lb,
+       s.weight_lb as best_weight, s.rep_count as best_reps, w.date
+FROM sets s
+JOIN blocks b ON s.block_id = b.id
+JOIN exercises e ON b.exercise_id = e.id
+JOIN workouts w ON b.workout_id = w.id
+WHERE s.completed_at IS NOT NULL
+  AND s.set_type = 'work'
+  AND s.rep_count > 0
+GROUP BY e.name
+ORDER BY e.name;
 ```
 
 ### Step 2 — Program & Goal
