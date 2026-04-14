@@ -464,6 +464,197 @@ function getWeekNumber(d: Date): number {
   return Math.ceil((diff / 86400000 + start.getDay() + 1) / 7);
 }
 
+// ─── Body composition & nutrition ───
+
+export interface AthleteProfile {
+  height_inches: number;
+  birth_date: string | null;
+}
+
+export interface BodyMeasurement {
+  date: string;
+  weight_lb: number;
+  body_fat_pct: number | null;
+}
+
+export interface MacroTarget {
+  date: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  rationale: string | null;
+  planned_lift: string | null;
+  planned_cardio: string | null;
+}
+
+export interface IntakeEntry {
+  date: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}
+
+export interface BodyCompRow {
+  date: string;
+  weight_lb: number;
+  body_fat_pct: number | null;
+  lbm_lb: number | null;
+  ffmi: number | null;
+  weight_7d_avg: number | null;
+}
+
+export interface TDEERow {
+  window_end: string;
+  days: number;
+  avg_intake: number;
+  weight_slope_per_day: number;
+  tdee_estimate: number;
+}
+
+export interface MacroComparison {
+  date: string;
+  target_cal: number | null;
+  target_p: number | null;
+  target_c: number | null;
+  target_f: number | null;
+  actual_cal: number | null;
+  actual_p: number | null;
+  actual_c: number | null;
+  actual_f: number | null;
+}
+
+export function getAthleteProfile(): AthleteProfile | null {
+  return db.prepare('SELECT height_inches, birth_date FROM athlete_profile WHERE id = 1').get() as AthleteProfile | null;
+}
+
+export function getBodyMeasurements(days = 90): BodyMeasurement[] {
+  return db.prepare(`
+    SELECT date, weight_lb, body_fat_pct FROM body_measurements
+    WHERE date >= date('now', ? )
+    ORDER BY date ASC
+  `).all(`-${days} days`) as BodyMeasurement[];
+}
+
+export function getIntake(days = 90): IntakeEntry[] {
+  return db.prepare(`
+    SELECT date, calories, protein_g, carbs_g, fat_g FROM intake_log
+    WHERE date >= date('now', ?)
+    ORDER BY date ASC
+  `).all(`-${days} days`) as IntakeEntry[];
+}
+
+export function getMacroTargets(days = 90): MacroTarget[] {
+  return db.prepare(`
+    SELECT date, calories, protein_g, carbs_g, fat_g, rationale, planned_lift, planned_cardio
+    FROM macro_targets WHERE date >= date('now', ?) ORDER BY date ASC
+  `).all(`-${days} days`) as MacroTarget[];
+}
+
+/**
+ * Join measurements + computed LBM + FFMI + 7-day weight avg.
+ * Returns one row per measurement date, ASC.
+ */
+export function getBodyCompSeries(days = 90): BodyCompRow[] {
+  const profile = getAthleteProfile();
+  const rows = getBodyMeasurements(days);
+  const heightM = profile ? (profile.height_inches * 0.0254) : null;
+
+  return rows.map((r, i) => {
+    const lbmLb = r.body_fat_pct != null ? r.weight_lb * (1 - r.body_fat_pct / 100) : null;
+    const ffmi = (lbmLb != null && heightM != null)
+      ? Math.round((lbmLb * 0.453592) / (heightM * heightM) * 100) / 100
+      : null;
+
+    // 7-day rolling avg of weight (trailing window, min 3 points)
+    const start = Math.max(0, i - 6);
+    const window = rows.slice(start, i + 1);
+    const weight7d = window.length >= 3
+      ? Math.round((window.reduce((s, w) => s + w.weight_lb, 0) / window.length) * 10) / 10
+      : null;
+
+    return {
+      date: r.date,
+      weight_lb: r.weight_lb,
+      body_fat_pct: r.body_fat_pct,
+      lbm_lb: lbmLb != null ? Math.round(lbmLb * 10) / 10 : null,
+      ffmi,
+      weight_7d_avg: weight7d,
+    };
+  });
+}
+
+/**
+ * Linear regression of weight_lb vs day-index over a window. Returns slope (lb/day).
+ */
+function weightSlope(rows: BodyMeasurement[]): number {
+  if (rows.length < 2) return 0;
+  const xs = rows.map((_, i) => i);
+  const ys = rows.map(r => r.weight_lb);
+  const n = xs.length;
+  const sumX = xs.reduce((s, x) => s + x, 0);
+  const sumY = ys.reduce((s, y) => s + y, 0);
+  const sumXY = xs.reduce((s, x, i) => s + x * ys[i], 0);
+  const sumX2 = xs.reduce((s, x) => s + x * x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 0.0001) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
+}
+
+/**
+ * Rolling TDEE estimate: for each day with ≥7 days of paired weight + intake,
+ * back-calculate TDEE = avg_intake - (Δweight × 3500 / days).
+ */
+export function getTDEERollingEstimate(windowDays = 7, lookbackDays = 60): TDEERow[] {
+  const weights = getBodyMeasurements(lookbackDays);
+  const intakes = getIntake(lookbackDays);
+  if (weights.length < windowDays || intakes.length < windowDays) return [];
+
+  const intakeByDate = new Map(intakes.map(i => [i.date, i]));
+  const out: TDEERow[] = [];
+
+  for (let i = windowDays - 1; i < weights.length; i++) {
+    const window = weights.slice(i - windowDays + 1, i + 1);
+    const paired = window.filter(w => intakeByDate.has(w.date));
+    if (paired.length < Math.ceil(windowDays * 0.7)) continue;
+
+    const avgIntake = paired.reduce((s, w) => s + intakeByDate.get(w.date)!.calories, 0) / paired.length;
+    const slope = weightSlope(window);
+    const tdee = avgIntake - slope * 3500;
+
+    out.push({
+      window_end: window[window.length - 1].date,
+      days: paired.length,
+      avg_intake: Math.round(avgIntake),
+      weight_slope_per_day: Math.round(slope * 100) / 100,
+      tdee_estimate: Math.round(tdee),
+    });
+  }
+  return out;
+}
+
+export function getMacroComparison(days = 14): MacroComparison[] {
+  return db.prepare(`
+    SELECT
+      COALESCE(t.date, i.date) as date,
+      t.calories as target_cal, t.protein_g as target_p, t.carbs_g as target_c, t.fat_g as target_f,
+      i.calories as actual_cal, i.protein_g as actual_p, i.carbs_g as actual_c, i.fat_g as actual_f
+    FROM macro_targets t
+    LEFT JOIN intake_log i ON t.date = i.date
+    WHERE COALESCE(t.date, i.date) >= date('now', ?)
+    UNION
+    SELECT
+      COALESCE(t.date, i.date) as date,
+      t.calories, t.protein_g, t.carbs_g, t.fat_g,
+      i.calories, i.protein_g, i.carbs_g, i.fat_g
+    FROM intake_log i
+    LEFT JOIN macro_targets t ON t.date = i.date
+    WHERE t.date IS NULL AND i.date >= date('now', ?)
+    ORDER BY date ASC
+  `).all(`-${days} days`, `-${days} days`) as MacroComparison[];
+}
+
 export function getTotalStats() {
   const row = db.prepare(`
     SELECT

@@ -64,6 +64,51 @@ Individual sets within a block.
 
 Constraint: UNIQUE(block_id, set_number)
 
+## athlete_profile
+Single-row table for stable athlete attributes used in derived metrics (FFMI, TDEE).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK CHECK (id=1) | Always 1 |
+| height_inches | REAL NOT NULL | Used for FFMI (height_m²) |
+| birth_date | DATE | Optional |
+
+## body_measurements
+Daily morning weigh-in + scale body-fat %.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| date | DATE PK | One row per day |
+| weight_lb | REAL NOT NULL | Fasted, post-bathroom |
+| body_fat_pct | REAL | Scale BF% (noisy; trend matters more) |
+| notes | TEXT | |
+
+## macro_targets
+Computed daily macro targets (written by `/morning`).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| date | DATE PK | |
+| calories | INTEGER NOT NULL | |
+| protein_g | INTEGER NOT NULL | |
+| carbs_g | INTEGER NOT NULL | |
+| fat_g | INTEGER NOT NULL | |
+| rationale | TEXT | Brief reasoning |
+| planned_lift | TEXT | |
+| planned_cardio | TEXT | |
+
+## intake_log
+Actual consumed macros (written by `/log-intake`). Pairs with `body_measurements` to back out TDEE.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| date | DATE PK | |
+| calories | INTEGER NOT NULL | |
+| protein_g | INTEGER NOT NULL | |
+| carbs_g | INTEGER NOT NULL | |
+| fat_g | INTEGER NOT NULL | |
+| notes | TEXT | |
+
 ## reps
 Per-rep VBT (velocity-based training) data. Only populated when user provides device data.
 

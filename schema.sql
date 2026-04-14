@@ -60,3 +60,36 @@ CREATE INDEX idx_workouts_date ON workouts(date);
 CREATE INDEX idx_workouts_program ON workouts(program_id);
 CREATE INDEX idx_blocks_workout ON blocks(workout_id);
 CREATE INDEX idx_sets_block ON sets(block_id);
+
+CREATE TABLE athlete_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    height_inches REAL NOT NULL,
+    birth_date DATE
+);
+
+CREATE TABLE body_measurements (
+    date DATE PRIMARY KEY,
+    weight_lb REAL NOT NULL,
+    body_fat_pct REAL,
+    notes TEXT
+);
+
+CREATE TABLE macro_targets (
+    date DATE PRIMARY KEY,
+    calories INTEGER NOT NULL,
+    protein_g INTEGER NOT NULL,
+    carbs_g INTEGER NOT NULL,
+    fat_g INTEGER NOT NULL,
+    rationale TEXT,
+    planned_lift TEXT,
+    planned_cardio TEXT
+);
+
+CREATE TABLE intake_log (
+    date DATE PRIMARY KEY,
+    calories INTEGER NOT NULL,
+    protein_g INTEGER NOT NULL,
+    carbs_g INTEGER NOT NULL,
+    fat_g INTEGER NOT NULL,
+    notes TEXT
+);

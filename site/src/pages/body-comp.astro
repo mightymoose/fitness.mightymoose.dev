@@ -1,0 +1,158 @@
+---
+import Layout from '../layouts/Layout.astro';
+import {
+  getBodyCompSeries,
+  getTDEERollingEstimate,
+  getMacroComparison,
+  getAthleteProfile,
+  getBodyMeasurements,
+} from '../lib/db';
+import {
+  renderTimeSeries,
+  renderCalorieBars,
+  type LineSeries,
+} from '../lib/charts';
+
+const series = getBodyCompSeries(90);
+const tdeeRows = getTDEERollingEstimate(7, 60);
+const macroRows = getMacroComparison(14);
+const profile = getAthleteProfile();
+const latest = series[series.length - 1];
+const prev7 = series.slice(-7);
+const week7Avg = prev7.length ? prev7.reduce((s, r) => s + r.weight_lb, 0) / prev7.length : null;
+const latestTdee = tdeeRows[tdeeRows.length - 1];
+
+const accent = '#c47d3c';
+const green = '#7dab6e';
+const blue = '#6b9fc7';
+const muted = '#a89f93';
+
+const weightChart = renderTimeSeries(
+  'Bodyweight',
+  series.length ? `${series[0].date} → ${series[series.length - 1].date}` : '',
+  'lb',
+  [
+    { label: 'Daily', color: accent, points: series.map(r => ({ date: r.date, value: r.weight_lb })) },
+    { label: '7d avg', color: muted, points: series.filter(r => r.weight_7d_avg != null).map(r => ({ date: r.date, value: r.weight_7d_avg! })), dashed: true, dots: false },
+  ],
+);
+
+const bfChart = renderTimeSeries(
+  'Body Fat %',
+  'Noisy on consumer scales — watch the trend, not the day',
+  '%',
+  [
+    { label: 'BF%', color: blue, points: series.filter(r => r.body_fat_pct != null).map(r => ({ date: r.date, value: r.body_fat_pct! })) },
+  ],
+);
+
+const ffmiChart = renderTimeSeries(
+  'FFMI',
+  'Fat-free mass index — muscle density at current height',
+  'ffmi',
+  [
+    { label: 'FFMI', color: green, points: series.filter(r => r.ffmi != null).map(r => ({ date: r.date, value: r.ffmi! })) },
+  ],
+);
+
+const tdeeChart = renderTimeSeries(
+  'TDEE Estimate',
+  '7-day rolling: avg intake − (Δweight × 3500)',
+  'cal',
+  [
+    { label: 'TDEE', color: accent, points: tdeeRows.map(r => ({ date: r.window_end, value: r.tdee_estimate })) },
+    { label: 'Avg intake', color: muted, points: tdeeRows.map(r => ({ date: r.window_end, value: r.avg_intake })), dashed: true, dots: false },
+  ],
+);
+
+const calorieChart = renderCalorieBars(macroRows.map(r => ({
+  date: r.date, target_cal: r.target_cal, actual_cal: r.actual_cal,
+})));
+
+function fmt(v: number | null | undefined, d = 1): string {
+  return v == null ? '—' : v.toFixed(d);
+}
+---
+
+<Layout title="Body Comp — Mighty Moose Fitness">
+  <div class="page-header">
+    <h1>Body Comp & Nutrition</h1>
+    <p class="subtitle">Weight, lean mass, and deficit compliance</p>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{fmt(latest?.weight_lb)}</div>
+      <div class="stat-label">Weight (lb)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmt(week7Avg)}</div>
+      <div class="stat-label">7-Day Avg</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmt(latest?.body_fat_pct)}%</div>
+      <div class="stat-label">Body Fat</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmt(latest?.lbm_lb)}</div>
+      <div class="stat-label">LBM (lb)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{fmt(latest?.ffmi, 2)}</div>
+      <div class="stat-label">FFMI</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{latestTdee ? latestTdee.tdee_estimate : '—'}</div>
+      <div class="stat-label">TDEE (7d)</div>
+    </div>
+  </div>
+
+  <section class="section">
+    <div class="section-header"><h2>Weight Trend</h2></div>
+    <div class="chart-card" set:html={weightChart}></div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><h2>Body Composition</h2></div>
+    <div class="chart-card" set:html={bfChart}></div>
+    <div class="chart-card" set:html={ffmiChart}></div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><h2>Energy Balance</h2></div>
+    <div class="chart-card" set:html={tdeeChart}></div>
+    <div class="chart-card" set:html={calorieChart}></div>
+  </section>
+
+  {macroRows.length > 0 && (
+    <section class="section">
+      <div class="section-header"><h2>Recent Days — Target vs Actual</h2></div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Cal (T/A)</th><th>P (T/A)</th><th>C (T/A)</th><th>F (T/A)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {macroRows.slice().reverse().map(r => (
+              <tr>
+                <td class="num">{r.date.slice(5)}</td>
+                <td class="num">{r.target_cal ?? '—'} / <span style={r.actual_cal && r.target_cal && Math.abs(r.actual_cal - r.target_cal) / r.target_cal > 0.1 ? 'color: var(--yellow)' : ''}>{r.actual_cal ?? '—'}</span></td>
+                <td class="num">{r.target_p ?? '—'} / <span style={r.actual_p && r.target_p && r.actual_p < r.target_p * 0.9 ? 'color: var(--red)' : ''}>{r.actual_p ?? '—'}</span></td>
+                <td class="num">{r.target_c ?? '—'} / {r.actual_c ?? '—'}</td>
+                <td class="num">{r.target_f ?? '—'} / {r.actual_f ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {profile && (
+    <p style="color: var(--text-muted); font-size: 0.7rem; font-family: var(--font-mono); margin-top: 2rem;">
+      Profile: {Math.floor(profile.height_inches / 12)}'{Math.round(profile.height_inches % 12)}" · FFMI uses LBM_kg / height_m²
+    </p>
+  )}
+</Layout>
